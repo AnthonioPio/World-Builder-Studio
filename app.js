@@ -77,6 +77,7 @@ const state = {
   selectedAssetEl: null,
   spacePressed: false
 };
+let draggedAsset = null;
 
 // --- 3. DOM Elements ---
 const sidebar = document.getElementById("asset-sidebar");
@@ -111,7 +112,7 @@ function renderSidebar(filterText = "") {
 
     matchingItems.forEach((asset) => {
       const card = document.createElement("div");
-      card.draggable = true;
+      card.setAttribute("draggable", "true");
       card.className =
         "group flex flex-col items-center p-2.5 rounded-xl bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 hover:border-amber-400/60 cursor-grab active:cursor-grabbing transition";
       card.innerHTML = `
@@ -119,12 +120,22 @@ function renderSidebar(filterText = "") {
         <span class="text-[11px] text-slate-300 text-center leading-tight pointer-events-none">${asset.label}</span>
       `;
 
-      // Drag start payload
+      // Prevent inner SVG from intercepting the drag gesture
+      const svgEl = card.querySelector("svg");
+      if (svgEl) svgEl.setAttribute("draggable", "false");
+
+      // Store payload in both text/plain and JS state fallback
       card.addEventListener("dragstart", (e) => {
-        e.dataTransfer.setData("application/json", JSON.stringify(asset));
+        draggedAsset = asset;
+        e.dataTransfer.effectAllowed = "copy";
+        e.dataTransfer.setData("text/plain", JSON.stringify(asset));
       });
 
-      // Allow click-to-spawn at center of viewport
+      card.addEventListener("dragend", () => {
+        draggedAsset = null;
+      });
+
+      // Click-to-spawn at center of viewport
       card.addEventListener("click", () => {
         const rect = viewport.getBoundingClientRect();
         const worldX = (rect.width / 2 - state.panX) / state.scale;
@@ -192,19 +203,25 @@ toolButtons.forEach((btn) => {
 });
 
 // --- 8. Drag & Drop onto Map Canvas ---
-viewport.addEventListener("dragover", (e) => e.preventDefault());
+viewport.addEventListener("dragenter", (e) => e.preventDefault());
+
+viewport.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "copy";
+});
 
 viewport.addEventListener("drop", (e) => {
   e.preventDefault();
-  const raw = e.dataTransfer.getData("application/json");
-  if (!raw) return;
+  const raw = e.dataTransfer.getData("text/plain");
+  const asset = raw ? JSON.parse(raw) : draggedAsset;
+  if (!asset) return;
 
-  const asset = JSON.parse(raw);
   const rect = viewport.getBoundingClientRect();
   const worldX = (e.clientX - rect.left - state.panX) / state.scale;
   const worldY = (e.clientY - rect.top - state.panY) / state.scale;
 
   spawnAssetOnMap(asset, worldX, worldY);
+  draggedAsset = null;
 });
 
 function spawnAssetOnMap(asset, x, y) {
