@@ -77,7 +77,6 @@ const state = {
   selectedAssetEl: null,
   spacePressed: false
 };
-let draggedAsset = null;
 
 // --- 3. DOM Elements ---
 const sidebar = document.getElementById("asset-sidebar");
@@ -93,7 +92,7 @@ const zoomReadout = document.getElementById("zoom-readout");
 const deleteAssetBtn = document.getElementById("delete-asset-btn");
 const toolButtons = document.querySelectorAll(".tool-btn");
 
-// --- 4. Render Asset Sidebar ---
+// --- 4. Render Asset Sidebar with Touch Support ---
 function renderSidebar(filterText = "") {
   assetLibrary.innerHTML = "";
   const query = filterText.trim().toLowerCase();
@@ -107,35 +106,19 @@ function renderSidebar(filterText = "") {
     const section = document.createElement("div");
     section.innerHTML = `<h2 class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">${category.name}</h2>`;
 
-    const grid = document.createElement("div");
-    grid.className = "grid grid-cols-2 gap-2";
+    const grid = document.endChild ? null : document.createElement("div");
+    grid.className = "grid grid-cols-2 gap-2.5";
 
     matchingItems.forEach((asset) => {
       const card = document.createElement("div");
-      card.setAttribute("draggable", "true");
       card.className =
-        "group flex flex-col items-center p-2.5 rounded-xl bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 hover:border-amber-400/60 cursor-grab active:cursor-grabbing transition";
+        "group flex flex-col items-center p-3 rounded-xl bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 hover:border-amber-400/60 cursor-pointer active:scale-95 transition touch-manipulation";
       card.innerHTML = `
         <div class="w-12 h-12 mb-1.5 pointer-events-none group-hover:scale-105 transition-transform">${asset.svg}</div>
         <span class="text-[11px] text-slate-300 text-center leading-tight pointer-events-none">${asset.label}</span>
       `;
 
-      // Prevent inner SVG from intercepting the drag gesture
-      const svgEl = card.querySelector("svg");
-      if (svgEl) svgEl.setAttribute("draggable", "false");
-
-      // Store payload in both text/plain and JS state fallback
-      card.addEventListener("dragstart", (e) => {
-        draggedAsset = asset;
-        e.dataTransfer.effectAllowed = "copy";
-        e.dataTransfer.setData("text/plain", JSON.stringify(asset));
-      });
-
-      card.addEventListener("dragend", () => {
-        draggedAsset = null;
-      });
-
-      // Click-to-spawn at center of viewport
+      // Tap / Click to spawn asset instantly at center of viewport (ideal for touch screens)
       card.addEventListener("click", () => {
         const rect = viewport.getBoundingClientRect();
         const worldX = (rect.width / 2 - state.panX) / state.scale;
@@ -202,28 +185,7 @@ toolButtons.forEach((btn) => {
   btn.addEventListener("click", () => setActiveTool(btn.dataset.tool));
 });
 
-// --- 8. Drag & Drop onto Map Canvas ---
-viewport.addEventListener("dragenter", (e) => e.preventDefault());
-
-viewport.addEventListener("dragover", (e) => {
-  e.preventDefault();
-  e.dataTransfer.dropEffect = "copy";
-});
-
-viewport.addEventListener("drop", (e) => {
-  e.preventDefault();
-  const raw = e.dataTransfer.getData("text/plain");
-  const asset = raw ? JSON.parse(raw) : draggedAsset;
-  if (!asset) return;
-
-  const rect = viewport.getBoundingClientRect();
-  const worldX = (e.clientX - rect.left - state.panX) / state.scale;
-  const worldY = (e.clientY - rect.top - state.panY) / state.scale;
-
-  spawnAssetOnMap(asset, worldX, worldY);
-  draggedAsset = null;
-});
-
+// --- 8. Spawn & Move Placed Assets (Pointer Events for Touch & Mouse) ---
 function spawnAssetOnMap(asset, x, y) {
   const el = document.createElement("div");
   el.className = "placed-asset";
@@ -233,31 +195,32 @@ function spawnAssetOnMap(asset, x, y) {
   el.style.height = `${asset.size}px`;
   el.innerHTML = asset.svg;
 
-  // Enable selecting and dragging placed assets
-  el.addEventListener("mousedown", (e) => {
+  el.addEventListener("pointerdown", (e) => {
     if (state.tool !== "select" || state.spacePressed) return;
     e.stopPropagation();
     selectPlacedAsset(el);
+    el.setPointerCapture(e.pointerId);
 
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
     const startLeft = parseFloat(el.style.left);
     const startTop = parseFloat(el.style.top);
 
-    function onMouseMove(moveEvent) {
+    function onPointerMove(moveEvent) {
       const dx = (moveEvent.clientX - startMouseX) / state.scale;
       const dy = (moveEvent.clientY - startMouseY) / state.scale;
       el.style.left = `${startLeft + dx}px`;
       el.style.top = `${startTop + dy}px`;
     }
 
-    function onMouseUp() {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+    function onPointerUp(upEvent) {
+      el.releasePointerCapture(upEvent.pointerId);
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerup", onPointerUp);
     }
 
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup", onPointerUp);
   });
 
   placedLayer.appendChild(el);
@@ -277,36 +240,39 @@ function selectPlacedAsset(el) {
   }
 }
 
-// --- 9. Viewport Pan & Zoom Interactions ---
-viewport.addEventListener("mousedown", (e) => {
-  // Deselect if clicking empty parchment with Select tool
-  if (state.tool === "select" && !state.spacePressed && e.button === 0) {
+// --- 9. Viewport Pan & Zoom Pointer Interactions ---
+viewport.addEventListener("pointerdown", (e) => {
+  if (state.tool === "select" && !state.spacePressed && e.button === 0 && e.target === viewport || e.target === worldStage || e.target.id === "grid-overlay") {
     selectPlacedAsset(null);
   }
 
-  // Zoom tool click
   if (state.tool === "zoom" && e.button === 0) {
     zoomAtPoint(e.altKey ? 0.8 : 1.25, e.clientX, e.clientY);
     return;
   }
 
-  // Panning via Pan tool, Spacebar hold, or Middle Mouse button
-  if (state.tool === "pan" || state.spacePressed || e.button === 1) {
+  if (state.tool === "pan" || state.spacePressed || e.pointerType === "touch" || e.button === 1 || e.button === 0 && state.tool === "pan") {
     state.isPanning = true;
     state.panStartX = e.clientX - state.panX;
     state.panStartY = e.clientY - state.panY;
+    viewport.setPointerCapture(e.pointerId);
   }
 });
 
-window.addEventListener("mousemove", (e) => {
+viewport.addEventListener("pointermove", (e) => {
   if (!state.isPanning) return;
   state.panX = e.clientX - state.panStartX;
   state.panY = e.clientY - state.panStartY;
   updateTransform();
 });
 
-window.addEventListener("mouseup", () => {
-  state.isPanning = false;
+viewport.addEventListener("pointerup", (e) => {
+  if (state.isPanning) {
+    state.isPanning = false;
+    try {
+      viewport.releasePointerCapture(e.pointerId);
+    } catch (err) {}
+  }
 });
 
 viewport.addEventListener(

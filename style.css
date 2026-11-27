@@ -1,3 +1,8 @@
+/* Prevent default mobile browser gestures on the map viewport */
+#map-viewport {
+  touch-action: none;
+}
+
 /* Smooth sidebar collapse animation */
 .sidebar-transition {
   transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
