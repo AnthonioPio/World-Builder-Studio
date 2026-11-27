@@ -13,7 +13,7 @@
   pointer-events: none;
 }
 
-/* Custom thin dark scrollbar for asset list */
+/* Custom thin scrollbar for asset list */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }
@@ -23,9 +23,6 @@
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: #334155;
   border-radius: 9999px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #475569;
 }
 
 /* Fantasy Parchment Map Surface */
@@ -45,8 +42,8 @@
 
 /* Toolbar Active State */
 .active-tool {
-  background-color: #f59e0b; /* amber-500 */
-  color: #0f172a;            /* slate-950 */
+  background-color: #f59e0b;
+  color: #0f172a;
   font-weight: 600;
 }
 
